@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Lane Clash – Side-Scrolling Tower Defense</title>
+<style>
+  /* ---------- Page & layout ---------- */
+  :root {
+    --bg: #12151f;
+    --panel: #1c2233;
+    --panel-2: #262e45;
+    --text: #eef2ff;
+    --muted: #9aa6c7;
+    --accent: #ffcf4a;
+    --good: #4cd68a;
+    --bad: #ff5d6c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    background: radial-gradient(circle at 50% 0%, #1d2540 0%, var(--bg) 70%);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  body { display: flex; align-items: center; justify-content: center; padding: 8px; }
+
+  #app {
+    position: relative;
+    width: 100%; max-width: 1000px;
+    background: var(--panel);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    overflow: hidden;
+  }
+
+  /* ---------- Top HUD ---------- */
+  #hud {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 10px 14px;
+    background: linear-gradient(#262e45, #1c2233);
+    border-bottom: 2px solid #11162a;
+    font-weight: 700;
+  }
+  .hud-box { display: flex; align-items: center; gap: 8px; font-size: clamp(13px, 2.6vw, 18px); }
+  .hud-box .label { color: var(--muted); font-weight: 600; font-size: .8em; text-transform: uppercase; letter-spacing: .06em; }
+  #money { color: var(--accent); font-variant-numeric: tabular-nums; }
+  #waveBox { color: #fff; }
+  #speedBtn {
+    background: var(--panel-2); color: var(--text); border: 1px solid #3a4468;
+    border-radius: 8px; padding: 5px 10px; font-weight: 700; cursor: pointer;
+  }
+  #speedBtn:hover { background: #313a58; }
+
+  /* ---------- Canvas ---------- */
+  #game { display: block; width: 100%; height: auto; aspect-ratio: 1000 / 420; background: #87cefa; touch-action: none; }
+
+  /* ---------- Bottom spawn bar ---------- */
+  #bar {
+    display: flex; justify-content: center; gap: 10px;
+    padding: 10px; background: linear-gradient(#1c2233, #141a2b);
+    border-top: 2px solid #11162a;
+  }
+  .unit-btn {
+    position: relative; flex: 1 1 0; max-width: 230px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 12px; cursor: pointer;
+    background: var(--panel-2); color: var(--text);
+    border: 2px solid #3a4468; font: inherit; text-align: left;
+    overflow: hidden; transition: transform .08s, border-color .15s, filter .15s;
+  }
+  .unit-btn:hover:not(.disabled) { border-color: var(--accent); }
+  .unit-btn:active:not(.disabled) { transform: scale(.96); }
+  .unit-btn.disabled { filter: grayscale(.9) brightness(.65); cursor: not-allowed; }
+  .unit-btn .icon { width: 34px; height: 34px; flex: none; }
+  .unit-btn .meta { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+  .unit-btn .name { font-weight: 800; font-size: clamp(12px, 2.4vw, 15px); }
+  .unit-btn .cost { color: var(--accent); font-weight: 700; font-size: clamp(11px, 2.2vw, 14px); }
+  .unit-btn .key {
+    position: absolute; top: 3px; right: 6px; font-size: 11px; color: var(--muted); font-weight: 700;
+  }
+  /* Cooldown overlay shrinks from the top as the cooldown completes */
+  .unit-btn .cd {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+    background: rgba(0,0,0,.55); pointer-events: none;
+  }
+
+  /* Five dog buttons need to fit on small screens */
+  @media (max-width: 640px) {
+    #bar { gap: 5px; padding: 6px; }
+    .unit-btn { padding: 6px 5px; gap: 5px; border-radius: 9px; }
+    .unit-btn .icon { width: 22px; height: 22px; }
+    .unit-btn .key { display: none; }
+  }
+
+  /* ---------- Overlay screens ---------- */
+  #overlay {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 10, 20, .78); backdrop-filter: blur(3px);
+    text-align: center; padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  .card {
+    background: linear-gradient(#2a3354, #1c2340);
+    border: 2px solid #3f4a75; border-radius: 18px;
+    padding: 28px 34px; max-width: 520px; width: 100%;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+  }
+  .card h1 { margin: 0 0 6px; font-size: clamp(28px, 6vw, 44px); letter-spacing: .02em; }
+  .card h1.win { color: var(--good); }
+  .card h1.lose { color: var(--bad); }
+  .card p { color: var(--muted); margin: 8px 0; line-height: 1.5; font-size: clamp(13px, 2.6vw, 16px); }
+  .card .stats { color: var(--text); font-weight: 600; }
+  .card ul { text-align: left; color: var(--muted); font-size: clamp(12px, 2.4vw, 15px); line-height: 1.6; margin: 10px auto; padding-left: 20px; max-width: 400px; }
+  .btn {
+    margin-top: 16px; padding: 12px 34px; font-size: 18px; font-weight: 800;
+    color: #1a1400; background: linear-gradient(#ffe27a, #ffb82e);
+    border: none; border-radius: 12px; cursor: pointer;
+    box-shadow: 0 5px 0 #b27a00, 0 10px 20px rgba(0,0,0,.35);
+    transition: transform .08s, box-shadow .08s;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #b27a00; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top HUD: money, wave, speed toggle -->
+  <div id="hud">
+    <div class="hud-box"><span class="label">Energy</span><span id="money">0 / 0</span></div>
+    <div class="hud-box" id="waveBox"><span class="label">Wave</span><span id="wave">1</span></div>
+    <button id="speedBtn" title="Toggle game speed">Speed 1x</button>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <!-- Bottom unit spawn bar (buttons are generated from UNIT_TYPES below) -->
+  <div id="bar"></div>
+
+  <!-- Start / Victory / Defeat screens -->
+  <div id="overlay">
+    <div class="card" id="card"></div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+ *  LANE CLASH – a tiny side-scrolling lane tower defense game
+ *  Pure HTML + CSS + Vanilla JS. No external assets or libraries.
+ *
+ *  Sections:
+ *    1. Config & unit definitions
+ *    2. Game state
+ *    3. Spawning & economy
+ *    4. Update loop (movement, combat, effects)
+ *    5. Rendering (canvas)
+ *    6. UI wiring (buttons, overlay screens, input)
+ * ===================================================================== */
+
+/* ---------------------------------------------------------------------
+ * 1. CONFIG & UNIT DEFINITIONS
+ * ------------------------------------------------------------------- */
+const W = 1000, H = 420;          // logical canvas size (scaled by CSS)
+const GROUND = 350;               // y coordinate of the ground line (feet of units)
+
+const CONFIG = {
+  maxMoney: 400,                  // energy capacity
+  moneyRate: 24,                  // energy per second
+  startMoney: 120,
+  playerBaseHp: 1500,
+  enemyBaseHp: 2200,
+  waveLength: 25,                 // seconds per wave
+  killBonus: 6,                   // energy bonus for each enemy killed (+ wave number)
+  bossWave: 5,                    // waves 1-4 are normal, wave 5 is the boss battle
+  bossReward: 120,                // energy granted when the boss falls
+  enemyBaseShield: true,          // enemy fortress is shielded: the game continues endlessly after the boss.
+                                  // Set to false to restore the classic "destroy the base to win" rule.
+};
+
+// Bases: x = left edge, w = width
+const BASE_W = 80;
+const PLAYER_BASE_X = 14;
+const ENEMY_BASE_X = W - 14 - BASE_W;
+
+/**
+ * Player unit types.
+ * speed: px/sec   range: px (edge-to-edge)   interval: seconds between attacks
+ * cost: energy    cooldown: seconds before this button can be used again
+ */
+const UNIT_TYPES = [
+  // Cheap all-rounder with floppy ears
+  { id: 'basic', name: 'Grunt',  shape: 'circle',   color: '#4fc3f7', dark: '#1b86b5',
+    dog: true, ears: 'floppy', hat: null, patch: '#2b6f95',
+    cost: 50,  cooldown: 1.5, hp: 120, dmg: 12, speed: 46, range: 26, interval: 0.9, r: 16 },
+  // Fast, fragile runner with pointy ears and a red headband
+  { id: 'fast',  name: 'Dasher', shape: 'triangle', color: '#6be08a', dark: '#2a9a4a',
+    dog: true, ears: 'pointy', hat: 'band',
+    cost: 90,  cooldown: 2.5, hp: 70,  dmg: 9,  speed: 100, range: 22, interval: 0.45, r: 14 },
+  // Slow, very tanky wall wearing a helmet
+  { id: 'tank',  name: 'Bulwark', shape: 'square',  color: '#ffb04a', dark: '#c27412',
+    dog: true, ears: 'small', hat: 'helmet',
+    cost: 160, cooldown: 5,   hp: 480, dmg: 20, speed: 28, range: 32, interval: 1.2, r: 22 },
+  // NEW: long-eared ranged dog in a ranger hat – shoots from behind the front line
+  { id: 'ranged', name: 'Pointer', shape: 'diamond', color: '#f0d28a', dark: '#a3702f',
+    dog: true, ears: 'long', hat: 'cap', patch: '#a3702f',
+    cost: 120, cooldown: 3.5, hp: 85,  dmg: 15, speed: 40, range: 150, interval: 1.1, r: 15 },
+  // NEW: expensive crowned husky – slow-swinging heavy hitter
+  { id: 'alpha', name: 'Alpha', shape: 'hex',       color: '#d4dcec', dark: '#6b7a99',
+    dog: true, ears: 'pointy', hat: 'crown', patch: '#6b7a99',
+    cost: 240, cooldown: 9,   hp: 340, dmg: 55, speed: 58, range: 30, interval: 1.6, r: 21 },
+];
+
+/** Enemy types (stats are scaled up with the wave number when spawned). */
+const ENEMY_TYPES = [
+  { id: 'e_basic', name: 'Imp',    shape: 'circle',   color: '#ff6b6b', dark: '#a92b2b',
+    hp: 100, dmg: 10, speed: 38, range: 26, interval: 1.0, r: 16 },
+  { id: 'e_fast',  name: 'Stinger', shape: 'triangle', color: '#c67bff', dark: '#7a35b8',
+    hp: 60,  dmg: 8,  speed: 82, range: 22, interval: 0.6, r: 14 },
+  { id: 'e_tank',  name: 'Brute',  shape: 'square',   color: '#8a2d3b', dark: '#4d1220',
+    hp: 430, dmg: 22, speed: 26, range: 34, interval: 1.3, r: 26 },
+];
+
+/** The Wave 5 boss. `splash` = extra reach (px) of its stomp, which hits every dog nearby. */
+const BOSS_TYPE = {
+  id: 'boss', name: 'COLOSSUS', shape: 'boss', isBoss: true,
+  color: '#7b2cbf', dark: '#3c096c',
+  hp: 5200, dmg: 55, speed: 15, range: 46, interval: 2.2, r: 60, splash: 70,
+};
+
+/* ---------------------------------------------------------------------
+ * 2. GAME STATE
+ * ------------------------------------------------------------------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let mode = 'menu';          // 'menu' | 'playing' | 'won' | 'lost'
+let units, effects, texts;  // arrays of live entities / visual effects
+let money, cooldowns, wave, waveTimer, spawnTimer, bannerTimer;
+let bossState;              // 'pending' (before wave 5) | 'active' (boss alive) | 'done' (boss defeated)
+let infinite;               // true once the boss is defeated -> endless waves
+let bannerText, bannerSub;  // big centered banner text
+let burstLeft, burstTimer;  // queued extra enemies at the start of a wave
+let playerBase, enemyBase;
+let elapsed, deployed, kills;
+let gameSpeed = 1;
+let lastTime = 0;
+let shake = 0;
+const clouds = Array.from({ length: 6 }, (_, i) => ({
+  x: Math.random() * W, y: 30 + Math.random() * 90, s: 0.6 + Math.random() * 0.8, v: 6 + Math.random() * 8
+}));
+
+/** Reset everything for a fresh match. */
+function resetGame() {
+  units = [];
+  effects = [];
+  texts = [];
+  money = CONFIG.startMoney;
+  cooldowns = UNIT_TYPES.map(() => 0);
+  wave = 1;
+  waveTimer = 0;
+  spawnTimer = 2.5;               // first enemy after a short grace period
+  bannerTimer = 2;
+  bannerText = 'WAVE 1'; bannerSub = '';
+  bossState = 'pending'; infinite = false;
+  burstLeft = 0; burstTimer = 0;
+  elapsed = 0; deployed = 0; kills = 0;
+  shake = 0;
+  playerBase = { x: PLAYER_BASE_X, w: BASE_W, hp: CONFIG.playerBaseHp, maxHp: CONFIG.playerBaseHp, flash: 0 };
+  enemyBase  = { x: ENEMY_BASE_X,  w: BASE_W, hp: CONFIG.enemyBaseHp,  maxHp: CONFIG.enemyBaseHp,  flash: 0,
+                 shielded: CONFIG.enemyBaseShield };
+}
+
+/* ---------------------------------------------------------------------
+ * 3. SPAWNING & ECONOMY
+ * ------------------------------------------------------------------- */
+
+/** Create a unit entity from a type definition. */
+function makeUnit(side, type, hpMult = 1, dmgMult = 1, speedMult = 1) {
+  const fromLeft = side === 'player';
+  return {
+    side, type,
+    x: fromLeft ? playerBase.x + playerBase.w + 6 : enemyBase.x - 6,
+    hp: type.hp * hpMult, maxHp: type.hp * hpMult,
+    dmg: type.dmg * dmgMult,
+    speed: type.speed * speedMult * (0.92 + Math.random() * 0.16),   // slight variety
+    atkTimer: Math.random() * 0.3,
+    lunge: 0, flash: 0, anim: Math.random() * 6,
+    dir: fromLeft ? 1 : -1,
+  };
+}
+
+/** Player presses a spawn button. */
+function trySpawnPlayer(i) {
+  if (mode !== 'playing') return;
+  const t = UNIT_TYPES[i];
+  if (money < t.cost || cooldowns[i] > 0) return;
+  money -= t.cost;
+  cooldowns[i] = t.cooldown;
+  units.push(makeUnit('player', t));
+  deployed++;
+}
+
+/** Spawn an enemy appropriate for the current wave (difficulty scales with wave). */
+function spawnEnemy() {
+  // Weighted random pick: faster and tankier enemies appear in later waves
+  const weights = [
+    60,                              // Imp
+    wave >= 2 ? 15 + wave * 3 : 0,   // Stinger
+    wave >= 3 ? 6 + wave * 4 : 0,    // Brute
+  ];
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total, idx = 0;
+  while (idx < weights.length - 1 && r >= weights[idx]) { r -= weights[idx]; idx++; }
+
+  units.push(makeUnit('enemy', ENEMY_TYPES[idx], hpMultFor(wave), dmgMultFor(wave), speedMultFor(wave)));
+}
+
+/* ---- Difficulty curves. Waves 1-5 scale gently; every wave after the boss ramps harder. ---- */
+function hpMultFor(w) {
+  const base = 1 + 0.16 * (w - 1);
+  return w > CONFIG.bossWave ? base * (1 + 0.07 * (w - CONFIG.bossWave)) : base;
+}
+function dmgMultFor(w) {
+  const base = 1 + 0.08 * (w - 1);
+  return w > CONFIG.bossWave ? base * (1 + 0.04 * (w - CONFIG.bossWave)) : base;
+}
+function speedMultFor(w) {
+  return w > CONFIG.bossWave ? Math.min(1.35, 1 + 0.015 * (w - CONFIG.bossWave)) : 1;
+}
+/** Seconds between enemy spawns: shrinks every wave down to a 0.45 s floor. */
+function spawnIntervalFor(w) {
+  return Math.max(0.45, 4.2 - w * 0.25);
+}
+
+/** Move on to the next wave (spawns the boss when we reach the boss wave). */
+function advanceWave() {
+  wave++;
+  waveTimer = 0;
+  if (wave === CONFIG.bossWave && bossState === 'pending') { spawnBoss(); return; }
+  bannerText = 'WAVE ' + wave;
+  bannerSub = infinite ? 'Infinite Mode' : '';
+  bannerTimer = 2.2;
+  // Extra enemies at the start of each wave (bigger bursts in infinite mode)
+  burstLeft = Math.min(1 + Math.floor(wave / 2), infinite ? 8 : 5);
+  burstTimer = 0;
+}
+
+/** Wave 5: summon the giant boss. */
+function spawnBoss() {
+  bossState = 'active';
+  bannerText = 'WAVE ' + wave;
+  bannerSub = '⚠ BOSS BATTLE ⚠';
+  bannerTimer = 3.2;
+  units.push(makeUnit('enemy', BOSS_TYPE));
+  shake = 8;
+}
+
+/** Called when the boss dies: unlock endless mode and queue Wave 6. */
+function onBossDefeated(boss) {
+  bossState = 'done';
+  infinite = true;
+  bannerText = 'Infinite Mode Unlocked!';
+  bannerSub = 'Survive as many waves as you can';
+  bannerTimer = 3.4;
+  waveTimer = CONFIG.waveLength - 3.4;       // Wave 6 begins right after the banner
+  money = Math.min(CONFIG.maxMoney, money + CONFIG.bossReward);
+  addSparks(boss.x, GROUND - boss.type.r, '#d9a3ff', 50);
+  addSparks(boss.x, GROUND - boss.type.r, '#ffd34a', 30);
+  addText(boss.x, GROUND - boss.type.r * 2 - 30, '+' + CONFIG.bossReward, '#ffcf4a');
+  shake = 10;
+}
+
+/** Handles the enemy spawn timer and wave progression. */
+function updateWaves(dt) {
+  // The wave timer is paused while the boss is alive – the boss fight ends Wave 5
+  if (bossState !== 'active') {
+    waveTimer += dt;
+    if (waveTimer >= CONFIG.waveLength) advanceWave();
+  }
+
+  // Queued burst spawns (staggered so they don't all appear on one pixel)
+  if (burstLeft > 0) {
+    burstTimer -= dt;
+    if (burstTimer <= 0) { spawnEnemy(); burstLeft--; burstTimer = 0.45; }
+  }
+
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    spawnEnemy();
+    // Interval shrinks each wave; the boss's escorts arrive more slowly
+    const escortSlowdown = bossState === 'active' ? 1.8 : 1;
+    spawnTimer = spawnIntervalFor(wave) * escortSlowdown * (0.8 + Math.random() * 0.4);
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * 4. UPDATE LOOP
+ * ------------------------------------------------------------------- */
+
+/** Deal damage to a unit or base and spawn feedback. */
+function hitUnit(target, amount, attacker) {
+  target.hp -= amount;
+  target.flash = 0.12;
+  addText(target.x, GROUND - target.type.r * 2 - 10, Math.round(amount), attacker.side === 'player' ? '#ffffff' : '#ff9aa5');
+  addSparks(target.x, GROUND - target.type.r, attacker.type.color, 5);
+}
+function hitBase(base, amount, attacker) {
+  if (base.shielded) {                       // shield absorbs everything
+    base.flash = 0.12;
+    if (Math.random() < 0.25) addText(base.x + base.w / 2, GROUND - 150, 'Shielded!', '#7fe3ff');
+    addSparks(base.x, GROUND - 40 - Math.random() * 40, '#7fe3ff', 3);
+    return;
+  }
+  base.hp -= amount;
+  base.flash = 0.12;
+  addText(base.x + base.w / 2 + (Math.random() * 30 - 15), GROUND - 150, Math.round(amount), '#ffe27a');
+  addSparks(attacker.side === 'player' ? base.x : base.x + base.w, GROUND - 40 - Math.random() * 40, '#ffd34a', 4);
+}
+
+function addText(x, y, text, color) {
+  texts.push({ x: x + (Math.random() * 10 - 5), y, text, color, life: 0.9, max: 0.9 });
+}
+function addSparks(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 110;
+    effects.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: 0.35 + Math.random() * 0.2, max: 0.5, color, size: 2 + Math.random() * 2.5 });
+  }
+}
+
+/** Distance in px between the edges of two units (negative = overlapping). */
+const gap = (a, b) => Math.abs(a.x - b.x) - a.type.r - b.type.r;
+
+function updateUnit(u, dt) {
+  u.anim += dt * (u.speed / 14);
+  if (u.lunge > 0) u.lunge -= dt;
+  if (u.flash > 0) u.flash -= dt;
+  u.atkTimer -= dt;
+
+  // The boss enrages below half HP: it marches much faster
+  if (u.type.isBoss && !u.enraged && u.hp < u.maxHp * 0.5) {
+    u.enraged = true;
+    u.speed *= 1.7;
+    addText(u.x, GROUND - u.type.r * 2 - 30, 'ENRAGED!', '#ff4d4d');
+    shake = 8;
+  }
+
+  // 1) Find the closest opposing unit that is in front of us
+  let target = null, best = Infinity;
+  for (const o of units) {
+    if (o.side === u.side || o.hp <= 0) continue;
+    if ((o.x - u.x) * u.dir < -4) continue;          // behind us
+    const g = gap(u, o);
+    if (g < best) { best = g; target = o; }
+  }
+
+  // 2) Attack an enemy unit in range
+  if (target && best <= u.type.range) {
+    if (u.atkTimer <= 0) {
+      u.atkTimer = u.type.interval;
+      u.lunge = 0.14;
+      if (u.type.splash) {
+        // Boss stomp: damages every opposing unit within reach
+        for (const o of units) {
+          if (o.side !== u.side && o.hp > 0 && gap(u, o) <= u.type.range + u.type.splash) hitUnit(o, u.dmg, u);
+        }
+        addSparks(u.x + u.dir * u.type.r, GROUND - 4, '#ffd34a', 14);
+        shake = Math.min(shake + 6, 10);
+      } else {
+        // Ranged dogs fire a visible shot toward the target
+        if (u.type.range >= 100) {
+          const sx = u.x + u.dir * u.type.r, dist = Math.abs(target.x - sx), life = Math.max(0.05, dist / 700);
+          effects.push({ x: sx, y: GROUND - u.type.r * 1.4, vx: u.dir * 700, vy: 0, life, max: life,
+                         color: u.type.dark, size: 6, noGrav: true });
+        }
+        hitUnit(target, u.dmg, u);
+      }
+    }
+    return;                                           // stop moving while fighting
+  }
+
+  // 3) No unit blocking – check if the opposing base is within range
+  const base = u.side === 'player' ? enemyBase : playerBase;
+  const baseGap = u.side === 'player'
+    ? base.x - (u.x + u.type.r)
+    : (u.x - u.type.r) - (base.x + base.w);
+  if (baseGap <= u.type.range) {
+    if (u.atkTimer <= 0) {
+      u.atkTimer = u.type.interval;
+      u.lunge = 0.14;
+      hitBase(base, u.dmg, u);
+      if (u.side === 'enemy') shake = Math.min(shake + 2, 6);
+    }
+    return;
+  }
+
+  // 4) Otherwise keep marching
+  u.x += u.dir * u.speed * dt;
+}
+
+function update(dt) {
+  elapsed += dt;
+  // Energy income rises slightly every wave in infinite mode to keep up with scaling enemies
+  const rate = CONFIG.moneyRate + (infinite ? Math.max(0, wave - CONFIG.bossWave) * 1.5 : 0);
+  money = Math.min(CONFIG.maxMoney, money + rate * dt);
+  for (let i = 0; i < cooldowns.length; i++) cooldowns[i] = Math.max(0, cooldowns[i] - dt);
+  if (bannerTimer > 0) bannerTimer -= dt;
+  if (shake > 0) shake = Math.max(0, shake - dt * 20);
+  playerBase.flash = Math.max(0, playerBase.flash - dt);
+  enemyBase.flash = Math.max(0, enemyBase.flash - dt);
+
+  updateWaves(dt);
+  for (const u of units) updateUnit(u, dt);
+
+  // Remove dead units (with a death puff and a small kill reward)
+  for (const u of units) {
+    if (u.hp <= 0 && !u.dead) {
+      u.dead = true;
+      addSparks(u.x, GROUND - u.type.r, u.type.color, 14);
+      if (u.side === 'enemy') {
+        kills++;
+        if (u.type.isBoss) {
+          onBossDefeated(u);                       // unlock infinite mode
+        } else {
+          const bonus = CONFIG.killBonus + wave;
+          money = Math.min(CONFIG.maxMoney, money + bonus);
+          addText(u.x, GROUND - u.type.r * 2 - 28, '+' + bonus, '#ffcf4a');
+        }
+      }
+    }
+  }
+  units = units.filter(u => !u.dead);
+
+  // Particles & floating text
+  for (const e of effects) {
+    e.life -= dt; e.x += e.vx * dt; e.y += e.vy * dt;
+    if (!e.noGrav) e.vy += 300 * dt;           // sparks fall; projectiles fly straight
+  }
+  effects = effects.filter(e => e.life > 0);
+  for (const t of texts) { t.life -= dt; t.y -= 38 * dt; }
+  texts = texts.filter(t => t.life > 0);
+
+  // Win / lose check
+  if (enemyBase.hp <= 0) endGame('won');
+  else if (playerBase.hp <= 0) endGame('lost');
+}
+
+/* ---------------------------------------------------------------------
+ * 5. RENDERING
+ * ------------------------------------------------------------------- */
+
+function drawBackground(dt) {
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND);
+  sky.addColorStop(0, '#5aa9f0');
+  sky.addColorStop(1, '#bfe6ff');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, GROUND);
+
+  // Clouds drift slowly
+  ctx.fillStyle = 'rgba(255,255,255,.8)';
+  for (const c of clouds) {
+    c.x += c.v * dt; if (c.x > W + 80) c.x = -80;
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, 34 * c.s, 13 * c.s, 0, 0, Math.PI * 2);
+    ctx.ellipse(c.x + 22 * c.s, c.y - 7 * c.s, 24 * c.s, 12 * c.s, 0, 0, Math.PI * 2);
+    ctx.ellipse(c.x - 22 * c.s, c.y - 4 * c.s, 20 * c.s, 10 * c.s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Distant hills
+  ctx.fillStyle = '#8fd0a0';
+  ctx.beginPath(); ctx.moveTo(0, GROUND);
+  for (let x = 0; x <= W; x += 20) ctx.lineTo(x, GROUND - 40 - Math.sin(x * 0.012) * 22 - Math.sin(x * 0.031) * 8);
+  ctx.lineTo(W, GROUND); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#6dbb83';
+  ctx.beginPath(); ctx.moveTo(0, GROUND);
+  for (let x = 0; x <= W; x += 20) ctx.lineTo(x, GROUND - 16 - Math.sin(x * 0.02 + 2) * 12);
+  ctx.lineTo(W, GROUND); ctx.closePath(); ctx.fill();
+
+  // Ground
+  const g = ctx.createLinearGradient(0, GROUND, 0, H);
+  g.addColorStop(0, '#7a5a3a'); g.addColorStop(1, '#4b3523');
+  ctx.fillStyle = g; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#58b85c'; ctx.fillRect(0, GROUND - 4, W, 8);   // grass strip
+  ctx.fillStyle = 'rgba(0,0,0,.12)';
+  for (let x = 10; x < W; x += 46) ctx.fillRect(x, GROUND + 22, 20, 4);
+}
+
+function drawBase(base, isPlayer) {
+  const x = base.x, w = base.w, top = GROUND - 150;
+  const main = isPlayer ? '#4a7fd8' : '#b8404f';
+  const dark = isPlayer ? '#2d57a3' : '#7d2431';
+  const light = isPlayer ? '#8bb4f5' : '#e9808b';
+
+  ctx.save();
+  if (base.flash > 0) ctx.translate((Math.random() - .5) * 3, 0);
+
+  // Tower body
+  ctx.fillStyle = base.flash > 0 ? '#ffffff' : main;
+  ctx.fillRect(x, top + 16, w, 150 - 16 + 4);
+  // Battlements
+  for (let i = 0; i < 4; i++) ctx.fillRect(x + i * (w / 4) + 2, top, w / 4 - 6, 20);
+  // Brick lines
+  ctx.strokeStyle = dark; ctx.lineWidth = 2;
+  for (let r = 0; r < 6; r++) {
+    const y = top + 40 + r * 22;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
+    for (let c = 0; c < 3; c++) {
+      const bx = x + (r % 2 ? 14 : 0) + c * 26 + 12;
+      if (bx < x + w) { ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx, y + 22); ctx.stroke(); }
+    }
+  }
+  // Door
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.moveTo(x + w / 2 - 14, GROUND + 4); ctx.lineTo(x + w / 2 - 14, GROUND - 28);
+  ctx.arc(x + w / 2, GROUND - 28, 14, Math.PI, 0); ctx.lineTo(x + w / 2 + 14, GROUND + 4); ctx.fill();
+  // Window
+  ctx.fillStyle = light; ctx.fillRect(x + w / 2 - 7, top + 40, 14, 20);
+  // Flag
+  ctx.strokeStyle = '#444'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x + w / 2, top); ctx.lineTo(x + w / 2, top - 30); ctx.stroke();
+  const wave = Math.sin(performance.now() / 200) * 3;
+  ctx.fillStyle = light;
+  ctx.beginPath(); ctx.moveTo(x + w / 2, top - 30);
+  ctx.lineTo(x + w / 2 + (isPlayer ? 26 : -26), top - 24 + wave);
+  ctx.lineTo(x + w / 2, top - 16); ctx.fill();
+  ctx.restore();
+
+  const bw = 100, bh = 12, bx = x + w / 2 - bw / 2, by = top - 52;
+
+  if (base.shielded) {
+    // Shielded fortress: glowing bubble + label instead of an HP bar
+    const cx = x + w / 2, cy = GROUND - 70;
+    ctx.save();
+    ctx.globalAlpha = 0.16 + (base.flash > 0 ? 0.3 : 0) + 0.05 * Math.sin(performance.now() / 300);
+    ctx.fillStyle = '#7fe3ff';
+    ctx.beginPath(); ctx.ellipse(cx, cy, 70, 118, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.7; ctx.strokeStyle = '#bff3ff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; roundRect(bx - 2, by - 2, bw + 4, bh + 4, 6); ctx.fill();
+    ctx.fillStyle = '#4fb8d8'; roundRect(bx, by, bw, bh, 5); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('SHIELDED', bx + bw / 2, by + 10);
+    return;
+  }
+
+  // HP bar above base
+  const pct = Math.max(0, base.hp / base.maxHp);
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; roundRect(bx - 2, by - 2, bw + 4, bh + 4, 6); ctx.fill();
+  ctx.fillStyle = pct > .5 ? '#4cd68a' : pct > .25 ? '#ffcf4a' : '#ff5d6c';
+  roundRect(bx, by, bw * pct, bh, 5); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(Math.max(0, Math.ceil(base.hp)) + ' / ' + base.maxHp, bx + bw / 2, by - 6);
+}
+
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+function drawUnit(u) {
+  const t = u.type, r = t.r;
+  if (t.isBoss) { drawBoss(u); return; }            // boss has its own custom drawing
+  const moving = u.atkTimer > 0 && u.lunge <= 0 ? 1 : 1;
+  const bob = Math.abs(Math.sin(u.anim)) * 4;                       // walking hop
+  const lunge = u.lunge > 0 ? Math.sin((u.lunge / 0.14) * Math.PI) * 8 * u.dir : 0;
+  const cx = u.x + lunge, cy = GROUND - r - bob;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.beginPath(); ctx.ellipse(u.x, GROUND + 2, r * 0.9, 4, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = u.flash > 0 ? '#ffffff' : t.color;
+  ctx.strokeStyle = t.dark; ctx.lineWidth = 3;
+
+  if (t.dog) drawDogBack(u, t, r);                  // tail + ears sit behind the body
+
+  // Body shape: circle / triangle / square / diamond / hexagon = easy to tell units apart
+  ctx.beginPath();
+  if (t.shape === 'circle') {
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+  } else if (t.shape === 'triangle') {
+    ctx.moveTo(0, -r - 2); ctx.lineTo(r + 2, r); ctx.lineTo(-r - 2, r); ctx.closePath();
+  } else if (t.shape === 'diamond') {
+    ctx.moveTo(0, -r - 2); ctx.lineTo(r + 2, 0); ctx.lineTo(0, r + 2); ctx.lineTo(-r - 2, 0); ctx.closePath();
+  } else if (t.shape === 'hex') {
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3;
+      k ? ctx.lineTo(Math.cos(a) * r * 1.08, Math.sin(a) * r * 1.08) : ctx.moveTo(Math.cos(a) * r * 1.08, Math.sin(a) * r * 1.08);
+    }
+    ctx.closePath();
+  } else {
+    roundRect(-r, -r, r * 2, r * 2, 5);
+  }
+  ctx.fill(); ctx.stroke();
+
+  // Eyes (look toward the direction of travel)
+  const ex = u.dir * r * 0.28, ey = t.shape === 'triangle' ? r * 0.2 : -r * 0.1;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(ex - 4, ey, 4, 0, Math.PI * 2); ctx.arc(ex + 5, ey, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(ex - 4 + u.dir * 1.5, ey, 2, 0, Math.PI * 2); ctx.arc(ex + 5 + u.dir * 1.5, ey, 2, 0, Math.PI * 2); ctx.fill();
+  // Angry brows for enemies
+  if (u.side === 'enemy') {
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ex - 8, ey - 8); ctx.lineTo(ex - 1, ey - 5);
+    ctx.moveTo(ex + 9, ey - 8); ctx.lineTo(ex + 2, ey - 5); ctx.stroke();
+  }
+  if (t.dog) drawDogFront(u, t, r, ex, ey);         // nose, fur patch and hat
+  ctx.restore();
+
+  // Health bar above the unit
+  const bw = Math.max(28, r * 2), bx = u.x - bw / 2, by = GROUND - r * 2 - 14;
+  const pct = Math.max(0, u.hp / u.maxHp);
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(bx - 1, by - 1, bw + 2, 6);
+  ctx.fillStyle = u.side === 'player' ? '#4cd68a' : '#ff6b6b';
+  ctx.fillRect(bx, by, bw * pct, 4);
+}
+
+/** Y coordinate of the top of a unit's body (relative to its center), used to place hats/ears. */
+function bodyTop(t) {
+  const r = t.r;
+  return (t.shape === 'triangle' || t.shape === 'diamond') ? -r - 2 : t.shape === 'hex' ? -r * 0.94 : -r;
+}
+
+/** Dog parts drawn BEHIND the body: wagging tail and ears. Coordinates are relative to the unit center. */
+function drawDogBack(u, t, r) {
+  const d = u.dir, flash = u.flash > 0, top = bodyTop(t);
+  const k = t.shape === 'triangle' ? 0.5 : 1;       // narrow bodies need ears closer to the middle
+
+  // Wagging tail
+  const wag = Math.sin(u.anim * 2.2) * 5;
+  ctx.strokeStyle = flash ? '#fff' : t.dark; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-d * r * 0.7, r * 0.2);
+  ctx.quadraticCurveTo(-d * (r + 10), r * 0.1, -d * (r + 12), -r * 0.5 + wag);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // Ears - the style differs per breed
+  ctx.fillStyle = flash ? '#fff' : t.dark;
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    if (t.ears === 'floppy') {
+      ctx.ellipse(s * r * 0.8, -r * 0.4, r * 0.28, r * 0.55, s * 0.35, 0, Math.PI * 2);
+    } else if (t.ears === 'long') {
+      ctx.ellipse(s * r * 0.92, r * 0.05, r * 0.24, r * 0.72, s * 0.12, 0, Math.PI * 2);
+    } else if (t.ears === 'small') {
+      ctx.arc(s * r * 0.62, top + r * 0.14, r * 0.3, 0, Math.PI * 2);
+    } else {                                         // 'pointy'
+      ctx.moveTo(s * r * 0.08 * k, top + r * 0.35);
+      ctx.lineTo(s * r * 0.62 * k, top + r * 0.5);
+      ctx.lineTo(s * r * 0.56 * k, top - r * 0.62);
+      ctx.closePath();
+    }
+    ctx.fill();
+  }
+}
+
+/** Dog parts drawn IN FRONT of the body: fur patch, nose and the hat. */
+function drawDogFront(u, t, r, ex, ey) {
+  const d = u.dir, flash = u.flash > 0, top = bodyTop(t);
+
+  // Fur patch
+  if (t.patch && !flash) {
+    ctx.globalAlpha = 0.45; ctx.fillStyle = t.patch;
+    ctx.beginPath(); ctx.arc(-d * r * 0.4, r * 0.4, r * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // Nose
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(ex + d * 6, ey + r * 0.4, 3.2, 0, Math.PI * 2); ctx.fill();
+
+  // Hat
+  ctx.lineWidth = 2;
+  switch (t.hat) {
+    case 'helmet':                                   // steel helmet with a red crest
+      ctx.fillStyle = '#9aa5b5'; ctx.strokeStyle = '#5b6678';
+      ctx.beginPath(); ctx.arc(0, top + r * 0.45, r * 0.88, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#6e7a8c'; ctx.fillRect(-r * 0.98, top + r * 0.42, r * 1.96, 5);
+      ctx.fillStyle = '#d94a4a'; ctx.fillRect(-2.5, top - r * 0.42, 5, r * 0.8);
+      break;
+    case 'cap':                                      // brown ranger hat
+      ctx.fillStyle = '#8a5a2b'; ctx.strokeStyle = '#4d300f';
+      ctx.beginPath(); ctx.ellipse(0, top + 5, r * 1.05, 4.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      roundRect(-r * 0.5, top - r * 0.5, r, r * 0.6, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8c04a'; ctx.fillRect(-r * 0.5, top - r * 0.05, r, 4);
+      break;
+    case 'crown':                                    // golden crown for the Alpha
+      ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#b8860b';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.6, top + 4); ctx.lineTo(-r * 0.6, top - r * 0.45); ctx.lineTo(-r * 0.3, top - r * 0.12);
+      ctx.lineTo(0, top - r * 0.55); ctx.lineTo(r * 0.3, top - r * 0.12); ctx.lineTo(r * 0.6, top - r * 0.45);
+      ctx.lineTo(r * 0.6, top + 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e0457b'; ctx.beginPath(); ctx.arc(0, top - r * 0.12, 2.8, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'band': {                                   // red headband with fluttering tails
+      const fl = Math.sin(u.anim * 3) * 3;
+      ctx.fillStyle = '#ff4d4d'; ctx.strokeStyle = '#ff4d4d';
+      ctx.fillRect(-r * 0.42, -r * 0.3, r * 0.84, 5);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-d * r * 0.42, -r * 0.27); ctx.lineTo(-d * (r * 0.42 + 9), -r * 0.27 + fl);
+      ctx.moveTo(-d * r * 0.42, -r * 0.27); ctx.lineTo(-d * (r * 0.42 + 8), -r * 0.27 + 5 - fl);
+      ctx.stroke();
+      break;
+    }
+  }
+}
+
+/** Custom drawing for the giant Wave 5 boss. */
+function drawBoss(u) {
+  const t = u.type, r = t.r, flash = u.flash > 0;
+  const bob = Math.abs(Math.sin(u.anim)) * 3;
+  const lunge = u.lunge > 0 ? Math.sin((u.lunge / 0.14) * Math.PI) * 12 * u.dir : 0;
+  const cx = u.x + lunge, cy = GROUND - r - bob;
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,.3)';
+  ctx.beginPath(); ctx.ellipse(u.x, GROUND + 2, r * 1.05, 7, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Pulsing aura (turns red when enraged)
+  ctx.globalAlpha = 0.18 + 0.12 * pulse;
+  ctx.fillStyle = u.enraged ? '#ff3b3b' : '#b45cff';
+  ctx.beginPath(); ctx.arc(0, 0, r + 14 + pulse * 6, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Spikes around the top of the body
+  ctx.fillStyle = flash ? '#fff' : t.dark;
+  for (let i = -3; i <= 3; i++) {
+    const a = -Math.PI / 2 + i * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a - 0.16) * r * 0.9, Math.sin(a - 0.16) * r * 0.9);
+    ctx.lineTo(Math.cos(a) * (r + 20), Math.sin(a) * (r + 20));
+    ctx.lineTo(Math.cos(a + 0.16) * r * 0.9, Math.sin(a + 0.16) * r * 0.9);
+    ctx.fill();
+  }
+
+  // Body
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.4, r * 0.1, 0, 0, r);
+  g.addColorStop(0, flash ? '#fff' : '#a35bd6'); g.addColorStop(1, flash ? '#fff' : t.color);
+  ctx.fillStyle = g; ctx.strokeStyle = '#2a0a3d'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Horns
+  ctx.fillStyle = flash ? '#fff' : '#f3e6c4'; ctx.strokeStyle = '#8a7a50'; ctx.lineWidth = 3;
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(s * r * 0.35, -r * 0.85);
+    ctx.quadraticCurveTo(s * r * 0.9, -r * 1.05, s * r * 0.8, -r * 1.55);
+    ctx.quadraticCurveTo(s * r * 0.55, -r * 1.1, s * r * 0.12, -r * 0.95);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+
+  // Glowing eyes
+  const eyeCol = u.enraged ? '#ff2a2a' : '#ffd23a';
+  ctx.shadowColor = eyeCol; ctx.shadowBlur = 14; ctx.fillStyle = eyeCol;
+  for (const s of [-1, 1]) {
+    ctx.beginPath(); ctx.ellipse(s * r * 0.34 + u.dir * 5, -r * 0.18, 11, 8, s * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#1a0526';
+  for (const s of [-1, 1]) {
+    ctx.beginPath(); ctx.arc(s * r * 0.34 + u.dir * 8, -r * 0.18, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Angry brows
+  ctx.strokeStyle = '#1a0526'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.62, -r * 0.5); ctx.lineTo(-r * 0.12, -r * 0.3);
+  ctx.moveTo(r * 0.62, -r * 0.5);  ctx.lineTo(r * 0.12, -r * 0.3);
+  ctx.stroke(); ctx.lineCap = 'butt';
+
+  // Mouth with fangs
+  ctx.fillStyle = '#1a0526';
+  roundRect(-r * 0.5, r * 0.22, r, r * 0.38, 10); ctx.fill();
+  ctx.fillStyle = flash ? '#ddd' : '#fff';
+  for (let i = 0; i < 5; i++) {
+    const tx = -r * 0.42 + i * (r * 0.84 / 4);
+    ctx.beginPath(); ctx.moveTo(tx - 5, r * 0.23); ctx.lineTo(tx + 5, r * 0.23); ctx.lineTo(tx, r * 0.23 + 11); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Boss health bar pinned to the top of the screen while the boss is alive. */
+function drawBossBar() {
+  if (mode !== 'playing') return;
+  const boss = units.find(u => u.type.isBoss && u.side === 'enemy' && u.hp > 0);
+  if (!boss) return;
+  const bw = 520, bh = 18, bx = (W - bw) / 2, by = 30;
+  const pct = Math.max(0, boss.hp / boss.maxHp);
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+  const title = '☠ ' + boss.type.name + (boss.enraged ? ' (ENRAGED)' : '') + ' ☠';
+  ctx.strokeText(title, W / 2, by - 8);
+  ctx.fillStyle = boss.enraged ? '#ff6b6b' : '#e0b3ff'; ctx.fillText(title, W / 2, by - 8);
+
+  ctx.fillStyle = 'rgba(0,0,0,.7)'; roundRect(bx - 3, by - 3, bw + 6, bh + 6, 9); ctx.fill();
+  const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  grad.addColorStop(0, '#c0392b'); grad.addColorStop(1, '#ff7a59');
+  ctx.fillStyle = grad;
+  if (pct > 0) { roundRect(bx, by, bw * pct, bh, 7); ctx.fill(); }
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif';
+  ctx.fillText(Math.ceil(boss.hp) + ' / ' + boss.maxHp, W / 2, by + 13);
+}
+
+function drawEffects() {
+  for (const e of effects) {
+    ctx.globalAlpha = Math.max(0, e.life / e.max);
+    ctx.fillStyle = e.color;
+    ctx.fillRect(e.x - e.size / 2, e.y - e.size / 2, e.size, e.size);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 15px sans-serif';
+  for (const t of texts) {
+    ctx.globalAlpha = Math.min(1, t.life / (t.max * 0.5));
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+    ctx.strokeText(t.text, t.x, t.y);
+    ctx.fillStyle = t.color; ctx.fillText(t.text, t.x, t.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBanner() {
+  if (bannerTimer <= 0 || mode !== 'playing') return;
+  const a = Math.min(1, bannerTimer / 0.5);
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold ' + (bannerText.length > 12 ? 44 : 54) + 'px sans-serif';
+  ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.55)';
+  ctx.strokeText(bannerText, W / 2, 120);
+  ctx.fillStyle = '#ffe27a'; ctx.fillText(bannerText, W / 2, 120);
+  if (bannerSub) {                                   // second line: boss warning / infinite mode note
+    ctx.font = 'bold 22px sans-serif'; ctx.lineWidth = 4;
+    ctx.strokeText(bannerSub, W / 2, 152);
+    ctx.fillStyle = bannerSub.includes('BOSS') ? '#ff8a8a' : '#a8f0ff'; ctx.fillText(bannerSub, W / 2, 152);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function render(dt) {
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+  drawBackground(dt);
+  drawBase(playerBase, true);
+  drawBase(enemyBase, false);
+  // Sort by x so overlapping units layer nicely
+  [...units].sort((a, b) => a.x - b.x).forEach(drawUnit);
+  drawEffects();
+  drawBanner();
+  ctx.restore();
+  drawBossBar();                                     // not affected by screen shake
+}
+
+/* ---------------------------------------------------------------------
+ * 6. UI WIRING
+ * ------------------------------------------------------------------- */
+const $money = document.getElementById('money');
+const $wave = document.getElementById('wave');
+const $bar = document.getElementById('bar');
+const $overlay = document.getElementById('overlay');
+const $card = document.getElementById('card');
+const $speed = document.getElementById('speedBtn');
+
+/** Small CSS-drawn icon so the buttons match the canvas shapes. */
+function iconHTML(t) {
+  const clips = {
+    triangle: 'clip-path:polygon(50% 0,100% 100%,0 100%);',
+    diamond:  'clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);',
+    hex:      'clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);',
+  };
+  const clip = clips[t.shape] || '';
+  const radius = t.shape === 'circle' ? 'border-radius:50%;' : t.shape === 'square' ? 'border-radius:6px;' : '';
+  return `<div class="icon" style="background:${t.color};${clip}${radius}box-shadow:inset 0 0 0 3px ${t.dark}"></div>`;
+}
+
+// Build spawn buttons from the unit definitions
+const buttons = UNIT_TYPES.map((t, i) => {
+  const b = document.createElement('button');
+  b.className = 'unit-btn';
+  b.innerHTML = `${iconHTML(t)}
+    <div class="meta"><span class="name">${t.name}</span><span class="cost">⚡ ${t.cost}</span></div>
+    <span class="key">${i + 1}</span><div class="cd"></div>`;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); trySpawnPlayer(i); });
+  $bar.appendChild(b);
+  return b;
+});
+
+/** Refresh HUD + button states (grayed out when unaffordable or cooling down). */
+function updateUI() {
+  $money.textContent = Math.floor(money) + ' / ' + CONFIG.maxMoney;
+  $wave.textContent = wave + (bossState === 'active' ? ' \u00b7 BOSS' : '') + (infinite ? ' \u00b7 \u221e' : '');
+  UNIT_TYPES.forEach((t, i) => {
+    const b = buttons[i];
+    const cd = cooldowns[i];
+    b.classList.toggle('disabled', mode !== 'playing' || money < t.cost || cd > 0);
+    b.querySelector('.cd').style.height = (cd > 0 ? (cd / t.cooldown) * 100 : 0) + '%';
+  });
+}
+
+/** Show an overlay screen: 'menu' | 'won' | 'lost' */
+function showOverlay(kind) {
+  const m = Math.floor(elapsed / 60), s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+  if (kind === 'menu') {
+    $card.innerHTML = `
+      <h1>⚔️ Lane Clash</h1>
+      <p>Destroy the enemy base before they destroy yours!</p>
+      <ul>
+        <li>Energy refills automatically – spend it on units.</li>
+        <li>Units march forward and fight anything in their way.</li>
+        <li>Enemies grow stronger every wave.</li>
+        <li>Wave 5 brings a giant boss. Beat it to unlock endless Infinite Mode!</li>
+        <li>Hotkeys: <b>1</b>\u2013<b>5</b> to deploy your dogs.</li>
+      </ul>
+      <button class="btn" id="startBtn">Start Game</button>`;
+  } else {
+    const win = kind === 'won';
+    $card.innerHTML = `
+      <h1 class="${win ? 'win' : 'lose'}">${win ? '🏆 Victory!' : '💥 Defeat'}</h1>
+      <p>${win ? 'The enemy base has fallen!' : (infinite ? 'Your base fell in Infinite Mode. How far did you get?' : 'Your base was destroyed.')}</p>
+      <p class="stats">Time ${m}:${s} &nbsp;•&nbsp; Wave ${wave} &nbsp;•&nbsp; Kills ${kills} &nbsp;•&nbsp; Units deployed ${deployed}</p>
+      <button class="btn" id="startBtn">Restart</button>`;
+  }
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  $overlay.classList.remove('hidden');
+}
+
+function startGame() {
+  resetGame();
+  mode = 'playing';
+  $overlay.classList.add('hidden');
+}
+
+function endGame(result) {
+  mode = result;
+  showOverlay(result);
+}
+
+// Keyboard shortcuts
+window.addEventListener('keydown', e => {
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= UNIT_TYPES.length) trySpawnPlayer(n - 1);
+});
+
+// Speed toggle (1x / 2x)
+$speed.addEventListener('click', () => {
+  gameSpeed = gameSpeed === 1 ? 2 : 1;
+  $speed.textContent = 'Speed ' + gameSpeed + 'x';
+});
+
+/** Make the canvas crisp on high-DPI screens. */
+function setupCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', setupCanvas);
+
+/** Main loop: fixed max step so tab-switching never causes huge jumps. */
+function frame(now) {
+  const rawDt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  if (mode === 'playing') update(rawDt * gameSpeed);
+  render(rawDt);
+  updateUI();
+  requestAnimationFrame(frame);
+}
+
+// Boot
+setupCanvas();
+resetGame();
+showOverlay('menu');
+requestAnimationFrame(t => { lastTime = t; frame(t); });
+</script>
+</body>
+</html>
